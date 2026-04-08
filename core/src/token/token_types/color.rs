@@ -1,6 +1,6 @@
 //! The `color` module defines the data structures for color tokens defined in the DTCG specification
 
-use core::f64;
+use std::f64;
 
 use crate::{
     ParserContext,

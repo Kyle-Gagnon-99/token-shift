@@ -162,6 +162,22 @@ impl DocumentIdGenerator {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Deprecation {
+    WithMessage(String),
+    Boolean(bool),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TokenCommon {
+    pub id: TokenId,
+    pub path: TokenPath,
+    pub document_id: DocumentId,
+    pub description: Option<String>,
+    pub deprecation: Option<Deprecation>,
+    pub extensions: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TokenAlias {
     pub raw_value: String,
     pub target_path: TokenPath,
@@ -201,7 +217,7 @@ impl JsonPointer {
     /// # Examples
     ///
     /// ```
-    /// use token_shift_core::token::ir::JsonPointer;
+    /// use tokenfoundry_core::token::ir::JsonPointer;
     /// let pointer = JsonPointer::from_segments(vec!["group1", "subgroupA", "tokenX"]);
     /// ```
     pub fn from_segments<I, S>(segments: I) -> Self
@@ -342,4 +358,12 @@ pub enum TokenValue<T> {
 
 pub enum IrTokenType {}
 
-//pub struct IrToken<T> {}
+pub struct IrToken<T> {
+    pub common: TokenCommon,
+    pub value: TokenValue<T>,
+}
+
+pub struct IrGroupToken {
+    pub common: TokenCommon,
+    pub children: Vec<TokenId>,
+}

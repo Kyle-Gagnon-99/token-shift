@@ -12,23 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cli"
-version = "0.1.0"
-dependencies = [
- "core",
-]
-
-[[package]]
-name = "core"
-version = "0.1.0"
-dependencies = [
- "regex",
- "serde",
- "serde_json",
- "serde_spanned",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -148,6 +131,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tokenfoundry_cli"
+version = "0.1.0"
+dependencies = [
+ "tokenfoundry_core",
+]
+
+[[package]]
+name = "tokenfoundry_core"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_spanned",
 ]
 
 [[package]]
