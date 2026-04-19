@@ -1,6 +1,9 @@
 //! The `font_weight` module defines the `FontWeightTokenValue` struct which represents the DTCG font-weight token type.
 
-use crate::ir::{JsonNumber, ParseState, RefOrLiteral, TryFromJson};
+use crate::{
+    errors::DiagnosticCode,
+    ir::{DiagnosticOwnership, InvalidReason, JsonNumber, ParseState, RefOrLiteral, TryFromJson},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FontWeightValueString {
@@ -50,10 +53,10 @@ impl<'a> TryFromJson<'a> for FontWeightValueString {
                 _ => {
                     ctx.push_to_errors(
                         crate::errors::DiagnosticCode::InvalidPropertyValue,
-                        format!("Invalid font-weight string value '{}' at {}", s, path),
+                        format!("Invalid font-weight string value '{}'", s),
                         path.into(),
                     );
-                    ParseState::Invalid
+                    ParseState::invalid_emitted(InvalidReason::InvalidValue)
                 }
             },
             _ => ParseState::NoMatch,
@@ -72,7 +75,7 @@ impl<'a> TryFromJson<'a> for FontWeightValueNumber {
     ) -> ParseState<Self> {
         match JsonNumber::try_from_json(ctx, path, value) {
             ParseState::Parsed(number) => ParseState::Parsed(Self(number)),
-            _ => ParseState::Invalid,
+            _ => ParseState::invalid_silent(InvalidReason::InvalidFieldType),
         }
     }
 }
@@ -90,11 +93,30 @@ impl<'a> TryFromJson<'a> for FontWeightValue {
         value: &'a serde_json::Value,
     ) -> ParseState<Self> {
         match FontWeightValueString::try_from_json(ctx, path, value) {
-            ParseState::Parsed(string_val) => ParseState::Parsed(Self::String(string_val)),
-            ParseState::Invalid => ParseState::Invalid,
+            ParseState::Parsed(val) => ParseState::Parsed(Self::String(val)),
+            ParseState::Invalid(inv) => {
+                if inv.ownership == DiagnosticOwnership::Silent {
+                    ctx.push_to_errors(
+                        DiagnosticCode::InvalidPropertyValue,
+                        format!("Expected a valid string, but got {:?}", value),
+                        path.into(),
+                    );
+                    return ParseState::invalid_emitted(inv.reason);
+                }
+                ParseState::Invalid(inv)
+            }
             ParseState::NoMatch => match FontWeightValueNumber::try_from_json(ctx, path, value) {
-                ParseState::Parsed(number_val) => ParseState::Parsed(Self::Number(number_val)),
-                _ => ParseState::Invalid,
+                ParseState::Parsed(val) => ParseState::Parsed(Self::Number(val)),
+                // FontWeightValueNumber will only return Invalid. JsonNumber only returns Invalid with a silent ownership
+                // so here we should emit an error for invalid number and return Invalid with emitted ownership
+                _ => {
+                    ctx.push_to_errors(
+                        DiagnosticCode::InvalidPropertyValue,
+                        format!("Expected a number or a valid string for font-weight value, but got {:?}", value),
+                        path.into(),
+                    );
+                    ParseState::invalid_emitted(InvalidReason::InvalidValue)
+                }
             },
         }
     }
@@ -109,20 +131,24 @@ impl<'a> TryFromJson<'a> for FontWeightTokenValue {
         path: &str,
         value: &'a serde_json::Value,
     ) -> ParseState<Self> {
-        let result = match RefOrLiteral::<FontWeightValue>::try_from_json(ctx, path, value) {
-            ParseState::Parsed(res) => res,
-            ParseState::Invalid => {
-                ctx.push_to_errors(
-                    crate::errors::DiagnosticCode::InvalidTokenValue,
-                    format!("Expected a font-weight token value (either a string like 'bold' or a number like 700) at {}", path),
-                    path.into(),
-                );
-                return ParseState::Invalid;
+        match RefOrLiteral::<FontWeightValue>::try_from_json(ctx, path, value) {
+            ParseState::Parsed(val) => ParseState::Parsed(Self(val)),
+            ParseState::Invalid(inv) => {
+                if inv.ownership == DiagnosticOwnership::Silent {
+                    ctx.push_to_errors(
+                        DiagnosticCode::InvalidPropertyValue,
+                        format!(
+                            "Expected a valid font-weight value (string or number), but got {:?}",
+                            value
+                        ),
+                        path.into(),
+                    );
+                    return ParseState::invalid_emitted(inv.reason);
+                }
+                ParseState::Invalid(inv)
             }
-            ParseState::NoMatch => return ParseState::NoMatch,
-        };
-
-        ParseState::Parsed(Self(result))
+            ParseState::NoMatch => ParseState::NoMatch,
+        }
     }
 }
 
@@ -148,8 +174,14 @@ mod tests {
         let bold = FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("bold"));
         let thin = FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("thin"));
 
-        assert!(matches!(bold, ParseState::Parsed(FontWeightValueString::Bold)));
-        assert!(matches!(thin, ParseState::Parsed(FontWeightValueString::Thin)));
+        assert!(matches!(
+            bold,
+            ParseState::Parsed(FontWeightValueString::Bold)
+        ));
+        assert!(matches!(
+            thin,
+            ParseState::Parsed(FontWeightValueString::Thin)
+        ));
         assert!(ctx.errors.is_empty());
     }
 
@@ -157,8 +189,7 @@ mod tests {
     fn font_weight_value_string_parses_alias_values_to_current_variants() {
         let mut ctx = test_ctx();
 
-        let regular =
-            FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("regular"));
+        let regular = FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("regular"));
         let book = FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("book"));
         let demi_bold =
             FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("demi-bold"));
@@ -167,7 +198,10 @@ mod tests {
             regular,
             ParseState::Parsed(FontWeightValueString::Normal)
         ));
-        assert!(matches!(book, ParseState::Parsed(FontWeightValueString::Normal)));
+        assert!(matches!(
+            book,
+            ParseState::Parsed(FontWeightValueString::Normal)
+        ));
         assert!(matches!(
             demi_bold,
             ParseState::Parsed(FontWeightValueString::SemiBold)
@@ -179,10 +213,9 @@ mod tests {
     fn font_weight_value_string_rejects_invalid_string() {
         let mut ctx = test_ctx();
 
-        let state =
-            FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("super-bold"));
+        let state = FontWeightValueString::try_from_json(&mut ctx, "#/token", &json!("super-bold"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -224,7 +257,9 @@ mod tests {
         ));
         assert!(matches!(
             number_state,
-            ParseState::Parsed(FontWeightValue::Number(FontWeightValueNumber(JsonNumber(_))))
+            ParseState::Parsed(FontWeightValue::Number(FontWeightValueNumber(JsonNumber(
+                _
+            ))))
         ));
         assert!(ctx.errors.is_empty());
     }
@@ -280,18 +315,15 @@ mod tests {
     fn font_weight_token_value_reports_invalid_string_and_invalid_token_value() {
         let mut ctx = test_ctx();
 
-        let state =
-            FontWeightTokenValue::try_from_json(&mut ctx, "#/token", &json!("super-bold"));
+        let state = FontWeightTokenValue::try_from_json(&mut ctx, "#/token", &json!("super-bold"));
 
-        assert!(matches!(state, ParseState::Invalid));
-        assert!(ctx
-            .errors
-            .iter()
-            .any(|e| e.code == DiagnosticCode::InvalidPropertyValue && e.path == "#/token"));
-        assert!(ctx
-            .errors
-            .iter()
-            .any(|e| e.code == DiagnosticCode::InvalidTokenValue && e.path == "#/token"));
+        assert!(matches!(state, ParseState::Invalid(_)));
+        assert!(
+            ctx.errors
+                .iter()
+                .any(|e| e.code == DiagnosticCode::InvalidPropertyValue && e.path == "#/token")
+        );
+        assert_eq!(ctx.errors.len(), 1);
     }
 
     #[test]
@@ -304,14 +336,12 @@ mod tests {
             &json!({ "$ref": "#/typography/weight/body", "extra": true }),
         );
 
-        assert!(matches!(state, ParseState::Invalid));
-        assert!(ctx
-            .errors
-            .iter()
-            .any(|e| e.code == DiagnosticCode::InvalidReference && e.path == "#/token"));
-        assert!(ctx
-            .errors
-            .iter()
-            .any(|e| e.code == DiagnosticCode::InvalidTokenValue && e.path == "#/token"));
+        assert!(matches!(state, ParseState::Invalid(_)));
+        assert!(
+            ctx.errors
+                .iter()
+                .any(|e| e.code == DiagnosticCode::InvalidReference && e.path == "#/token")
+        );
+        assert_eq!(ctx.errors.len(), 1);
     }
 }

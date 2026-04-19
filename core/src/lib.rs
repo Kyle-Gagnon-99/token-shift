@@ -92,4 +92,8 @@ impl ParserContext {
     pub fn get_current_path(&self) -> String {
         self.current_path.to_string()
     }
+
+    pub fn push_to_current_path(&mut self, segment: String) {
+        self.current_path.push(segment);
+    }
 }

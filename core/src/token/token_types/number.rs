@@ -1,6 +1,9 @@
 //! The `number` module defines the `NumberTokenValue` struct which represents the DTCG number token type.
 
-use crate::ir::{JsonNumber, ParseState, RefOrLiteral, TryFromJson};
+use crate::{
+    errors::DiagnosticCode,
+    ir::{DiagnosticOwnership, JsonNumber, ParseState, RefOrLiteral, TryFromJson},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NumberTokenValue(pub RefOrLiteral<JsonNumber>);
@@ -13,7 +16,17 @@ impl<'a> TryFromJson<'a> for NumberTokenValue {
     ) -> ParseState<Self> {
         match RefOrLiteral::<JsonNumber>::try_from_json(ctx, path, value) {
             ParseState::Parsed(number) => ParseState::Parsed(Self(number)),
-            ParseState::Invalid => ParseState::Invalid,
+            ParseState::Invalid(inv) => {
+                if inv.ownership == DiagnosticOwnership::Silent {
+                    ctx.push_to_errors(
+                        DiagnosticCode::InvalidPropertyValue,
+                        format!("Expected a valid number, but got {:?}", value),
+                        path.into(),
+                    );
+                    return ParseState::invalid_emitted(inv.reason);
+                }
+                ParseState::Invalid(inv)
+            }
             ParseState::NoMatch => ParseState::NoMatch,
         }
     }
@@ -77,8 +90,12 @@ mod tests {
         for input in invalid_inputs {
             let mut ctx = test_ctx();
             let state = NumberTokenValue::try_from_json(&mut ctx, "#/token", &input);
-            assert!(matches!(state, ParseState::Invalid));
-            assert!(ctx.errors.is_empty());
+            assert!(matches!(state, ParseState::Invalid(_)));
+            assert!(
+                ctx.errors.iter().any(|e| {
+                    e.code == DiagnosticCode::InvalidPropertyType && e.path == "#/token"
+                })
+            );
         }
     }
 
@@ -89,8 +106,12 @@ mod tests {
 
         let state = NumberTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
-        assert!(ctx.errors.is_empty());
+        assert!(matches!(state, ParseState::Invalid(_)));
+        assert!(
+            ctx.errors
+                .iter()
+                .any(|e| { e.code == DiagnosticCode::InvalidPropertyType && e.path == "#/token" })
+        );
     }
 
     #[test]
@@ -100,7 +121,7 @@ mod tests {
 
         let state = NumberTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidReference);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -113,7 +134,11 @@ mod tests {
 
         let state = NumberTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
-        assert!(ctx.errors.is_empty());
+        assert!(matches!(state, ParseState::Invalid(_)));
+        assert!(
+            ctx.errors
+                .iter()
+                .any(|e| { e.code == DiagnosticCode::InvalidReference && e.path == "#/token" })
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! The `cubic_bezier` module defines the `CubicBezierTokenValue` struct which represents the DTCG cubic-bezier token type.
 
-use crate::ir::{JsonArray, JsonNumber, ParseState, RefOrLiteral, TryFromJson};
+use crate::ir::{InvalidReason, JsonArray, JsonNumber, ParseState, RefOrLiteral, TryFromJson};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CubicBezierTokenValue(pub [RefOrLiteral<JsonNumber>; 4]);
@@ -25,7 +25,7 @@ impl<'a> TryFromJson<'a> for CubicBezierTokenValue {
                 ),
                 path.into(),
             );
-            return ParseState::Invalid;
+            return ParseState::invalid_emitted(InvalidReason::WrongShape);
         }
 
         let result = match array.parse_for_each::<RefOrLiteral<JsonNumber>>(ctx, path) {
@@ -39,7 +39,7 @@ impl<'a> TryFromJson<'a> for CubicBezierTokenValue {
                     ),
                     path.into(),
                 );
-                return ParseState::Invalid;
+                return ParseState::invalid_emitted(InvalidReason::InvalidValue);
             }
         };
         if result.len() != 4 {
@@ -51,7 +51,7 @@ impl<'a> TryFromJson<'a> for CubicBezierTokenValue {
                 ),
                 path.into(),
             );
-            return ParseState::Invalid;
+            return ParseState::invalid_emitted(InvalidReason::WrongShape);
         }
 
         ParseState::Parsed(Self([
@@ -138,7 +138,7 @@ mod tests {
 
         let state = CubicBezierTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -151,7 +151,7 @@ mod tests {
 
         let state = CubicBezierTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(
             ctx.errors
                 .iter()
@@ -176,7 +176,7 @@ mod tests {
 
         let state = CubicBezierTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(
             ctx.errors
                 .iter()

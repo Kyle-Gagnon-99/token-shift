@@ -11,6 +11,10 @@ pub enum RawNode {
     Group(RawGroup),
 }
 
+impl RawNode {
+    pub fn parse_to_ir(&self, ctx: &mut ParserContext) {}
+}
+
 /// Represents the deprecation status of a token, which can be either a simple deprecation (indicated by a boolean `true`) or a deprecation with a message providing details about the deprecation (indicated by a string).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]

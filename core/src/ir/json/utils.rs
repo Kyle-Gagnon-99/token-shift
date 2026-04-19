@@ -1,9 +1,9 @@
 //! The `utils` module in `json` contains utility functions for parsing JSON values into IR data structures, with error handling
 
 use crate::{
-    ParserContext,
     errors::DiagnosticCode,
     ir::{JsonObject, ParseState},
+    ParserContext,
 };
 
 /// Utility function to require a JSON value to be an object, and return it as a `JsonObject` if it is,

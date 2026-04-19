@@ -1,6 +1,14 @@
 //! The `node` module contains the definitions for what a node is in the IR and the parsed DTCG format.
 
-use crate::ir::{DocumentId, JsonRef, TokenAlias, TokenCommon};
+use crate::{
+    ir::{DocumentId, JsonRef, TokenAlias, TokenCommon},
+    token::{
+        ColorTokenValue, CubicBezierTokenValue, DimensionTokenValue, DurationTokenValue,
+        FontFamilyTokenValue, FontWeightTokenValue, GradientTokenValue, NumberTokenValue,
+        ShadowTokenValue, StrokeStyleTokenValue, TransitionTokenValue, TypographyTokenValue,
+        border::BorderStyle,
+    },
+};
 
 /// The `TokenValue` enum represents the source of a token's value in the IR, which can either be a literal value of type `T`,
 /// an alias to another token or a reference to another token.
@@ -13,10 +21,38 @@ pub enum TokenValue {
 
 /// The `IrTokenType` enum represents the different tokens.
 #[derive(Debug, Clone, PartialEq)]
-pub enum IrTokenValue {}
+pub enum IrTokenValue {
+    Color(ColorTokenValue),
+    Dimension(DimensionTokenValue),
+    FontFamily(FontFamilyTokenValue),
+    FontWeight(FontWeightTokenValue),
+    Duration(DurationTokenValue),
+    CubicBezier(CubicBezierTokenValue),
+    Number(NumberTokenValue),
+    StrokeStyle(StrokeStyleTokenValue),
+    Border(BorderStyle),
+    Transition(TransitionTokenValue),
+    Shadow(ShadowTokenValue),
+    Gradient(GradientTokenValue),
+    Typography(TypographyTokenValue),
+}
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum IrTokenType {}
+pub enum IrTokenType {
+    Color,
+    Dimension,
+    FontFamily,
+    FontWeight,
+    Duration,
+    CubicBezier,
+    Number,
+    StrokeStyle,
+    Border,
+    Transition,
+    Shadow,
+    Gradient,
+    Typography,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IrToken {

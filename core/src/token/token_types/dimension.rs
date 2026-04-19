@@ -2,7 +2,7 @@
 
 use crate::{
     errors::DiagnosticCode,
-    ir::{JsonNumber, JsonObject, ParseState, RefOrLiteral, TryFromJson},
+    ir::{InvalidReason, JsonNumber, JsonObject, ParseState, RefOrLiteral, TryFromJson},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,8 +16,18 @@ impl<'a> TryFromJson<'a> for DimensionValue {
     ) -> ParseState<Self> {
         match JsonNumber::try_from_json(ctx, path, value) {
             ParseState::Parsed(number) => ParseState::Parsed(Self(number)),
-            ParseState::Invalid => ParseState::Invalid,
-            ParseState::NoMatch => ParseState::NoMatch,
+            // Emit an error if the value is not a number, since dimension tokens require a numeric value
+            _ => {
+                ctx.push_to_errors(
+                    DiagnosticCode::InvalidPropertyType,
+                    format!(
+                        "Invalid dimension value. Expected a number but got {:?}",
+                        value
+                    ),
+                    path.into(),
+                );
+                ParseState::invalid_emitted(InvalidReason::InvalidFieldType)
+            }
         }
     }
 }
@@ -43,7 +53,7 @@ impl<'a> TryFromJson<'a> for DimensionUnit {
                     format!("Expected either 'px' or 'rem' for unit at {}", path),
                     path.into(),
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidFieldType)
             }
         }
     }
@@ -65,11 +75,11 @@ impl<'a> TryFromJson<'a> for DimensionTokenValue {
             serde_json::Value::Object(map) => JsonObject::new(map),
             _ => {
                 ctx.push_to_errors(
-                    crate::errors::DiagnosticCode::InvalidPropertyType,
+                    DiagnosticCode::InvalidPropertyType,
                     format!("Expected an object for dimension token value, but found: {value}"),
                     path.into(),
                 );
-                return ParseState::Invalid;
+                return ParseState::invalid_emitted(InvalidReason::InvalidFieldType);
             }
         };
 
@@ -78,10 +88,8 @@ impl<'a> TryFromJson<'a> for DimensionTokenValue {
         let unit = obj.required_field::<RefOrLiteral<DimensionUnit>>(ctx, path, "unit");
 
         match (value, unit) {
-            (ParseState::Parsed(value), ParseState::Parsed(unit)) => {
-                ParseState::Parsed(Self { value, unit })
-            }
-            _ => ParseState::Invalid,
+            (Some(value), Some(unit)) => ParseState::Parsed(Self { value, unit }),
+            _ => ParseState::invalid_emitted(InvalidReason::InvalidFieldType),
         }
     }
 }
@@ -119,7 +127,7 @@ mod tests {
 
         let state = DimensionUnit::try_from_json(&mut ctx, "#/token/unit", &json!("em"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(ctx.errors.len() == 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/unit");
@@ -182,7 +190,7 @@ mod tests {
 
         let state = DimensionTokenValue::try_from_json(&mut ctx, "#/token", &json!(42));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyType);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -195,7 +203,7 @@ mod tests {
 
         let state = DimensionTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::MissingRequiredProperty);
         assert_eq!(ctx.errors[0].path, "#/token/unit");
@@ -208,7 +216,7 @@ mod tests {
 
         let state = DimensionTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/unit");

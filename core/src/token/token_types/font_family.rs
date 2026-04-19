@@ -2,7 +2,7 @@
 
 use crate::{
     errors::DiagnosticCode,
-    ir::{JsonArray, ParseState, RefOrLiteral, TryFromJson},
+    ir::{InvalidReason, JsonArray, ParseState, RefOrLiteral, TryFromJson},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +30,7 @@ impl<'a> TryFromJson<'a> for FontFamilyMultipleValue {
                     ),
                     path.into(),
                 );
-                return ParseState::Invalid;
+                return ParseState::invalid_emitted(InvalidReason::InvalidFieldType);
             }
         };
 
@@ -52,12 +52,10 @@ impl<'a> TryFromJson<'a> for FontFamilyValue {
     ) -> ParseState<Self> {
         match RefOrLiteral::<String>::try_from_json(ctx, path, value) {
             ParseState::Parsed(single) => ParseState::Parsed(Self::Single(single)),
-            ParseState::Invalid => ParseState::Invalid,
-            ParseState::NoMatch => {
+            _ => {
                 match RefOrLiteral::<FontFamilyMultipleValue>::try_from_json(ctx, path, value) {
                     ParseState::Parsed(multiple) => ParseState::Parsed(Self::Multiple(multiple)),
-                    ParseState::Invalid => ParseState::Invalid,
-                    ParseState::NoMatch => ParseState::NoMatch,
+                    _ => ParseState::invalid_silent(InvalidReason::InvalidFieldType)
                 }
             }
         }
@@ -81,7 +79,7 @@ impl<'a> TryFromJson<'a> for FontFamilyTokenValue {
                     format!("Expected a string, JSON reference, or array of strings / JSON references, but got {:?}", value), 
                     path.into()
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidValue)
             }
         }
     }
@@ -158,7 +156,7 @@ mod tests {
 
         let state = FontFamilyMultipleValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(ctx.errors.iter().any(|e| {
             e.code == DiagnosticCode::InvalidPropertyType && e.path == "#/token/1"
         }));
@@ -236,7 +234,7 @@ mod tests {
 
         let state = FontFamilyTokenValue::try_from_json(&mut ctx, "#/token", &json!(123));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidTokenValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -249,7 +247,7 @@ mod tests {
 
         let state = FontFamilyTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(ctx.errors.iter().any(|e| {
             e.code == DiagnosticCode::InvalidPropertyType && e.path == "#/token/1"
         }));
@@ -268,7 +266,7 @@ mod tests {
 
         let state = FontFamilyTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(ctx.errors.iter().any(|e| {
             e.code == DiagnosticCode::InvalidReference && e.path == "#/token"
         }));

@@ -2,7 +2,7 @@
 
 use crate::{
     errors::DiagnosticCode,
-    ir::{JsonArray, JsonNumber, JsonObject, ParseState, RefOrLiteral, TryFromJson},
+    ir::{InvalidReason, JsonArray, JsonNumber, JsonObject, ParseState, RefOrLiteral, TryFromJson},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +33,7 @@ impl<'a> TryFromJson<'a> for ColorComponentArrayElement {
                     ),
                     path.into(),
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidValue)
             }
         }
     }
@@ -62,7 +62,7 @@ impl<'a> TryFromJson<'a> for ColorComponentArray {
                 ),
                 path.into(),
             );
-            return ParseState::Invalid;
+            return ParseState::invalid_emitted(InvalidReason::WrongShape);
         }
 
         let result = match array.parse_for_each::<ColorComponentArrayElement>(ctx, path) {
@@ -76,7 +76,7 @@ impl<'a> TryFromJson<'a> for ColorComponentArray {
                     ),
                     path.into(),
                 );
-                return ParseState::Invalid;
+                return ParseState::invalid_emitted(InvalidReason::InvalidValue);
             }
         };
 
@@ -131,7 +131,7 @@ impl<'a> TryFromJson<'a> for ColorSpaceString {
                         format!("Unexpected color space string '{}' at {}", s, path),
                         path.into(),
                     );
-                    ParseState::Invalid
+                    ParseState::invalid_emitted(InvalidReason::InvalidValue)
                 }
             },
             _ => {
@@ -143,7 +143,7 @@ impl<'a> TryFromJson<'a> for ColorSpaceString {
                     ),
                     path.into(),
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidValue)
             }
         }
     }
@@ -169,7 +169,7 @@ impl<'a> TryFromJson<'a> for ColorAlpha {
                     ),
                     path.into(),
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidValue)
             }
         }
     }
@@ -195,7 +195,7 @@ impl<'a> TryFromJson<'a> for ColorHexString {
                     ),
                     path.into(),
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidValue)
             }
         }
     }
@@ -226,43 +226,26 @@ impl<'a> TryFromJson<'a> for ColorTokenValue {
                     ),
                     path.into(),
                 );
-                return ParseState::Invalid;
+                return ParseState::invalid_emitted(InvalidReason::InvalidValue);
             }
         };
 
         let color_space =
-            match obj.required_field::<RefOrLiteral<ColorSpaceString>>(ctx, path, "color_space") {
-                ParseState::Parsed(cs) => cs,
-                _ => return ParseState::Invalid,
-            };
-        let components = match obj.required_field::<RefOrLiteral<ColorComponentArray>>(
-            ctx,
-            path,
-            "components",
-        ) {
-            ParseState::Parsed(c) => c,
-            ParseState::Invalid => return ParseState::Invalid,
-            ParseState::NoMatch => {
-                ctx.push_to_errors(
-                    DiagnosticCode::InvalidPropertyType,
-                    format!(
-                        "Invalid property type for field 'components' at {}",
-                        path
-                    ),
-                    format!("{}/components", path),
-                );
-                return ParseState::Invalid;
-            }
-        };
+            obj.required_field::<RefOrLiteral<ColorSpaceString>>(ctx, path, "color_space");
+        let components =
+            obj.required_field::<RefOrLiteral<ColorComponentArray>>(ctx, path, "components");
         let alpha = obj.optional_field::<RefOrLiteral<ColorAlpha>>(ctx, path, "alpha");
         let hex = obj.optional_field::<RefOrLiteral<ColorHexString>>(ctx, path, "hex");
 
-        ParseState::Parsed(ColorTokenValue {
-            color_space,
-            components,
-            alpha,
-            hex,
-        })
+        match (color_space, components) {
+            (Some(color_space), Some(components)) => ParseState::Parsed(Self {
+                color_space,
+                components,
+                alpha,
+                hex,
+            }),
+            _ => ParseState::invalid_emitted(InvalidReason::InvalidValue),
+        }
     }
 }
 
@@ -316,7 +299,7 @@ mod tests {
 
         let state = ColorComponentArrayElement::try_from_json(&mut ctx, "#/token/0", &json!("red"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/0");
@@ -329,7 +312,7 @@ mod tests {
         for input in invalid_inputs {
             let mut ctx = test_ctx();
             let state = ColorComponentArrayElement::try_from_json(&mut ctx, "#/token/0", &input);
-            assert!(matches!(state, ParseState::Invalid));
+            assert!(matches!(state, ParseState::Invalid(_)));
             assert_eq!(ctx.errors.len(), 1);
             assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         }
@@ -389,7 +372,7 @@ mod tests {
 
         let state = ColorComponentArray::try_from_json(&mut ctx, "#/token", &json!([1, 2]));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -402,7 +385,7 @@ mod tests {
 
         let state = ColorComponentArray::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(
             ctx.errors.iter().any(|e| {
                 e.code == DiagnosticCode::InvalidPropertyType && e.path == "#/token/1"
@@ -453,7 +436,7 @@ mod tests {
 
         let state = ColorSpaceString::try_from_json(&mut ctx, "#/token", &json!("cmyk"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -465,7 +448,7 @@ mod tests {
 
         let state = ColorSpaceString::try_from_json(&mut ctx, "#/token", &json!(42));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -492,7 +475,7 @@ mod tests {
 
         let state = ColorAlpha::try_from_json(&mut ctx, "#/token", &json!("0.5"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
     }
 
     // ── ColorHexString ────────────────────────────────────────────────────
@@ -513,7 +496,7 @@ mod tests {
 
         let state = ColorHexString::try_from_json(&mut ctx, "#/token", &json!(255));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -598,7 +581,7 @@ mod tests {
 
         let state = ColorTokenValue::try_from_json(&mut ctx, "#/token", &json!("red"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -611,7 +594,7 @@ mod tests {
 
         let state = ColorTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::MissingRequiredProperty);
         assert_eq!(ctx.errors[0].path, "#/token/color_space");
@@ -624,7 +607,7 @@ mod tests {
 
         let state = ColorTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::MissingRequiredProperty);
         assert_eq!(ctx.errors[0].path, "#/token/components");
@@ -637,7 +620,7 @@ mod tests {
 
         let state = ColorTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(ctx.errors.iter().any(|e| {
             e.code == DiagnosticCode::InvalidPropertyValue && e.path == "#/token/color_space"
         }));
@@ -650,7 +633,7 @@ mod tests {
 
         let state = ColorTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert!(
             ctx.errors
                 .iter()
@@ -665,10 +648,8 @@ mod tests {
 
         let state = ColorTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
-        assert!(ctx.errors.iter().any(|e| {
-            e.code == DiagnosticCode::InvalidPropertyType && e.path == "#/token/components"
-        }));
+        assert!(matches!(state, ParseState::Invalid(_)));
+        assert!(ctx.errors.is_empty());
     }
 
     #[test]

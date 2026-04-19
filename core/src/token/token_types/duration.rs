@@ -2,7 +2,7 @@
 
 use crate::{
     errors::DiagnosticCode,
-    ir::{JsonNumber, JsonObject, ParseState, RefOrLiteral, TryFromJson},
+    ir::{InvalidReason, JsonNumber, JsonObject, ParseState, RefOrLiteral, TryFromJson},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,10 +19,13 @@ impl<'a> TryFromJson<'a> for DurationValue {
             _ => {
                 ctx.push_to_errors(
                     DiagnosticCode::InvalidPropertyValue,
-                    format!("Expected a number for duration value at {}", path),
+                    format!(
+                        "Invalid duration value. Expected a number but got {:?}",
+                        value
+                    ),
                     path.into(),
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidFieldType)
             }
         }
     }
@@ -50,7 +53,7 @@ impl<'a> TryFromJson<'a> for DurationUnit {
                         format!("Expected either 'ms' or 's' for duration unit at {}", path),
                         path.into(),
                     );
-                    ParseState::Invalid
+                    ParseState::invalid_emitted(InvalidReason::InvalidValue)
                 }
             },
             _ => {
@@ -59,7 +62,7 @@ impl<'a> TryFromJson<'a> for DurationUnit {
                     format!("Expected a string for duration unit at {}", path),
                     path.into(),
                 );
-                ParseState::Invalid
+                ParseState::invalid_emitted(InvalidReason::InvalidFieldType)
             }
         }
     }
@@ -85,7 +88,7 @@ impl<'a> TryFromJson<'a> for DurationTokenValue {
                     format!("Expected an object for duration token value at {}", path),
                     path.into(),
                 );
-                return ParseState::Invalid;
+                return ParseState::invalid_emitted(InvalidReason::InvalidFieldType);
             }
         };
 
@@ -93,10 +96,8 @@ impl<'a> TryFromJson<'a> for DurationTokenValue {
         let unit = obj.required_field::<RefOrLiteral<DurationUnit>>(ctx, path, "unit");
 
         match (value, unit) {
-            (ParseState::Parsed(value), ParseState::Parsed(unit)) => {
-                ParseState::Parsed(Self { value, unit })
-            }
-            _ => ParseState::Invalid,
+            (Some(value), Some(unit)) => ParseState::Parsed(Self { value, unit }),
+            _ => ParseState::invalid_emitted(InvalidReason::InvalidFieldType),
         }
     }
 }
@@ -135,14 +136,14 @@ mod tests {
 
         let state = DurationValue::try_from_json(&mut ctx, "#/token/value", &json!("250"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/value");
         assert!(
             ctx.errors[0]
                 .message
-                .contains("Expected a number for duration value at #/token/value")
+                .contains("Invalid duration value. Expected a number but got")
         );
     }
 
@@ -169,7 +170,7 @@ mod tests {
 
         let state = DurationUnit::try_from_json(&mut ctx, "#/token/unit", &json!("min"));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/unit");
@@ -186,7 +187,7 @@ mod tests {
 
         let state = DurationUnit::try_from_json(&mut ctx, "#/token/unit", &json!(100));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/unit");
@@ -249,7 +250,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &json!(1));
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token");
@@ -267,7 +268,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::MissingRequiredProperty);
         assert_eq!(ctx.errors[0].path, "#/token/value");
@@ -280,7 +281,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::MissingRequiredProperty);
         assert_eq!(ctx.errors[0].path, "#/token/unit");
@@ -293,7 +294,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/value");
@@ -306,7 +307,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/unit");
@@ -319,7 +320,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 2);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidPropertyValue);
         assert_eq!(ctx.errors[0].path, "#/token/value");
@@ -337,7 +338,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidReference);
         assert_eq!(ctx.errors[0].path, "#/token/value");
@@ -353,7 +354,7 @@ mod tests {
 
         let state = DurationTokenValue::try_from_json(&mut ctx, "#/token", &input);
 
-        assert!(matches!(state, ParseState::Invalid));
+        assert!(matches!(state, ParseState::Invalid(_)));
         assert_eq!(ctx.errors.len(), 1);
         assert_eq!(ctx.errors[0].code, DiagnosticCode::InvalidReference);
         assert_eq!(ctx.errors[0].path, "#/token/unit");
